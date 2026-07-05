@@ -305,6 +305,30 @@
   }
 
   button.modal-close:hover { background: rgba(255,255,255,0.12); }
+
+  .mode-toggle {
+    display: flex;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .mode-opt {
+    font-size: 13px;
+    padding: 5px 12px;
+    border: none;
+    background: #fff;
+    cursor: pointer;
+    color: #666;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .mode-opt + .mode-opt { border-left: 1px solid #ddd; }
+
+  .mode-opt.active {
+    background: #4a7bff;
+    color: #fff;
+  }
 </style>
 </head>
 <body>
@@ -319,6 +343,10 @@
       <option value="brightness">Brightness</option>
       <option value="saturation">Saturation</option>
     </select>
+    <div class="mode-toggle">
+      <button class="mode-opt active" data-n="4">4 photos</button>
+      <button class="mode-opt" data-n="6">6 photos</button>
+    </div>
     <button class="collage-btn" id="collage-btn" style="display:none" disabled>0 / 4 selected</button>
     <button class="clear-btn" id="clear-btn">Clear all</button>
   </div>
@@ -377,7 +405,8 @@ const SATURATION_GROUPS = [
 
 // --- state ---
 let photos = [];   // { file, url, dominant: {r,g,b}, palette: [{r,g,b}], hsl: {h,s,l} }
-let selected = new Set(); // selected photo objects (max 4)
+let selected = new Set(); // selected photo objects
+let collageMode = 4;      // 4 or 6
 
 // --- DOM ---
 const dropZone      = document.getElementById('drop-zone');
@@ -421,6 +450,15 @@ collageBtn.addEventListener('click', createCollage);
 downloadBtn.addEventListener('click', downloadCollage);
 modalClose.addEventListener('click', () => collageModal.classList.remove('open'));
 collageModal.addEventListener('click', e => { if (e.target === collageModal) collageModal.classList.remove('open'); });
+
+document.querySelectorAll('.mode-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    collageMode = parseInt(btn.dataset.n, 10);
+    document.querySelectorAll('.mode-opt').forEach(b => b.classList.toggle('active', b === btn));
+    selected.clear();
+    syncSelection();
+  });
+});
 
 // --- file handling ---
 async function handleFiles(files) {
@@ -613,7 +651,7 @@ function getGroupOrder(key) {
 function toggleSelect(photo) {
   if (selected.has(photo)) {
     selected.delete(photo);
-  } else if (selected.size < 4) {
+  } else if (selected.size < collageMode) {
     selected.add(photo);
   }
   syncSelection();
@@ -621,13 +659,14 @@ function toggleSelect(photo) {
 
 function syncSelection() {
   const count = selected.size;
+  const target = collageMode;
   document.querySelectorAll('.photo-card').forEach(card => {
     const photo = card._photo;
     if (!photo) return;
     if (selected.has(photo)) {
       card.classList.add('selected');
       card.classList.remove('dimmed');
-    } else if (count === 4) {
+    } else if (count === target) {
       card.classList.remove('selected');
       card.classList.add('dimmed');
     } else {
@@ -639,8 +678,8 @@ function syncSelection() {
     collageBtn.style.display = 'none';
   } else {
     collageBtn.style.display = '';
-    collageBtn.disabled = count < 4;
-    collageBtn.textContent = count === 4 ? 'Create Collage' : `${count} / 4 selected`;
+    collageBtn.disabled = count < target;
+    collageBtn.textContent = count === target ? 'Create Collage' : `${count} / ${target} selected`;
   }
 }
 
@@ -745,29 +784,33 @@ function clearAll() {
 // --- collage builder ---
 async function createCollage() {
   const sel = [...selected];
-  if (sel.length !== 4) return;
+  if (sel.length !== collageMode) return;
 
   collageBtn.disabled = true;
   collageBtn.textContent = 'Building…';
 
-  const GAP = 0;
   const W = 1080, H = 1920;
-  const cw = W / 2;
-  const ch = H / 2;
   collageCanvas.width  = W;
   collageCanvas.height = H;
-
-  collageCtx.fillStyle = '#ffffff';
+  collageCtx.fillStyle = '#000';
   collageCtx.fillRect(0, 0, W, H);
 
-  const positions = [
-    [0,        0       ],
-    [cw + GAP, 0       ],
-    [0,        ch + GAP],
-    [cw + GAP, ch + GAP],
-  ];
+  let positions, cw, ch;
+  if (collageMode === 4) {
+    // 2×2 grid
+    cw = W / 2; ch = H / 2;
+    positions = [[0, 0], [cw, 0], [0, ch], [cw, ch]];
+  } else {
+    // 2×3 grid
+    cw = W / 2; ch = H / 3;
+    positions = [
+      [0,  0   ], [cw, 0   ],
+      [0,  ch  ], [cw, ch  ],
+      [0,  ch*2], [cw, ch*2],
+    ];
+  }
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < sel.length; i++) {
     const img = await loadImage(sel[i].url);
     const [x, y] = positions[i];
     drawCover(collageCtx, img, x, y, cw, ch);
